@@ -260,8 +260,8 @@ func TestParseComponentJSONFile_FullyPopulated(t *testing.T) {
 	if compCSV.IsAnnotation != "TRUE" {
 		t.Errorf("expected IsAnnotation 'TRUE', got %s", compCSV.IsAnnotation)
 	}
-	if compCSV.Version != "apps/v1" {
-		t.Errorf("expected Version 'apps/v1', got %s", compCSV.Version)
+	if compCSV.Version != "v1.0.0" {
+		t.Errorf("expected Version 'v1.0.0', got %s", compCSV.Version)
 	}
 	if compCSV.Status != "enabled" {
 		t.Errorf("expected Status 'enabled', got %s", compCSV.Status)
@@ -271,6 +271,74 @@ func TestParseComponentJSONFile_FullyPopulated(t *testing.T) {
 	}
 	if !strings.Contains(compCSV.Capabilities, "Configure") {
 		t.Errorf("expected Capabilities to contain Configure, got %s", compCSV.Capabilities)
+	}
+}
+
+func TestParseComponentJSONFile_InletsOperatorExample(t *testing.T) {
+	tempDir := t.TempDir()
+	compDir := filepath.Join(tempDir, "models", "inlets-operator", "0.17.20", "v1.0.0", "components")
+	if err := os.MkdirAll(compDir, 0755); err != nil {
+		t.Fatalf("failed to create directory: %v", err)
+	}
+
+	inletsJSON := `{
+		"displayName": "Tunnel",
+		"model": {
+			"name": "inlets-operator",
+			"version": "v1.0.0",
+			"model": {
+				"version": "0.17.20"
+			}
+		},
+		"component": {
+			"kind": "Tunnel",
+			"version": "operator.inlets.dev/v1alpha1"
+		}
+	}`
+	compFile := filepath.Join(compDir, "Tunnel.json")
+	if err := os.WriteFile(compFile, []byte(inletsJSON), 0644); err != nil {
+		t.Fatalf("failed to write test fixture: %v", err)
+	}
+
+	compCSV, err := ParseComponentJSONFile(compFile)
+	if err != nil {
+		t.Fatalf("ParseComponentJSONFile failed: %v", err)
+	}
+
+	if compCSV.Model != "inlets-operator" {
+		t.Errorf("expected Model 'inlets-operator', got '%s'", compCSV.Model)
+	}
+	if compCSV.Version != "v1.0.0" {
+		t.Errorf("expected Version 'v1.0.0', got '%s'", compCSV.Version)
+	}
+	if compCSV.Version == "operator.inlets.dev/v1alpha1" {
+		t.Errorf("Version must not be populated from the Kubernetes API version")
+	}
+
+	// Also verify that if def.Model.Version is empty, it falls back to def.Model.Model.Version
+	jsonWithoutDefVersion := `{
+		"displayName": "Tunnel",
+		"model": {
+			"name": "inlets-operator",
+			"model": {
+				"version": "0.17.20"
+			}
+		},
+		"component": {
+			"kind": "Tunnel",
+			"version": "operator.inlets.dev/v1alpha1"
+		}
+	}`
+	compFile2 := filepath.Join(compDir, "Tunnel2.json")
+	if err := os.WriteFile(compFile2, []byte(jsonWithoutDefVersion), 0644); err != nil {
+		t.Fatalf("failed to write test fixture: %v", err)
+	}
+	compCSV2, err := ParseComponentJSONFile(compFile2)
+	if err != nil {
+		t.Fatalf("ParseComponentJSONFile failed: %v", err)
+	}
+	if compCSV2.Version != "0.17.20" {
+		t.Errorf("expected Version fallback '0.17.20', got '%s'", compCSV2.Version)
 	}
 }
 
@@ -342,73 +410,107 @@ func TestParseComponentJSONFile_FallbackModelFromPath(t *testing.T) {
 	}
 }
 
-func TestScanCommittedModels_MalformedAndDeduplication(t *testing.T) {
+func TestScanCommittedModels_MalformedReturnsAggregatedError(t *testing.T) {
 	tempDir := t.TempDir()
 
-	// Create structure:
-	// models/model-a/v1.0.0/v1.0.0/model.json (valid)
-	// models/model-a/v1.0.0/v1.0.1/model.json (duplicate model-a:v1.0.0 - should be deduplicated)
-	// models/model-b/v2.0.0/v1.0.0/model.json (valid)
-	// models/model-c/v1.0.0/v1.0.0/model.json (malformed JSON: invalid syntax)
+	dirValid := filepath.Join(tempDir, "model-a", "v1.0.0", "v1.0.0")
+	dirBad := filepath.Join(tempDir, "model-b", "v1.0.0", "v1.0.0")
 
-	dirA1 := filepath.Join(tempDir, "model-a", "v1.0.0", "v1.0.0")
-	dirA2 := filepath.Join(tempDir, "model-a", "v1.0.0", "v1.0.1")
-	dirB := filepath.Join(tempDir, "model-b", "v2.0.0", "v1.0.0")
-	dirC := filepath.Join(tempDir, "model-c", "v1.0.0", "v1.0.0")
-
-	for _, d := range []string{dirA1, dirA2, dirB, dirC} {
+	for _, d := range []string{dirValid, dirBad} {
 		if err := os.MkdirAll(d, 0755); err != nil {
 			t.Fatalf("failed to create directory %s: %v", d, err)
 		}
 	}
 
-	_ = os.WriteFile(filepath.Join(dirA1, "model.json"), []byte(`{"name": "model-a", "displayName": "Model A"}`), 0644)
-	_ = os.WriteFile(filepath.Join(dirA2, "model.json"), []byte(`{"name": "model-a", "displayName": "Model A Duplicate"}`), 0644)
-	_ = os.WriteFile(filepath.Join(dirB, "model.json"), []byte(`{"name": "model-b", "displayName": "Model B"}`), 0644)
-	_ = os.WriteFile(filepath.Join(dirC, "model.json"), []byte(`{ malformed json content }`), 0644)
+	_ = os.WriteFile(filepath.Join(dirValid, "model.json"), []byte(`{"name": "model-a", "displayName": "Model A"}`), 0644)
+	badFile := filepath.Join(dirBad, "model.json")
+	_ = os.WriteFile(badFile, []byte(`{ malformed json content }`), 0644)
 
-	// Scan all models
+	// Scan models should fail and aggregate parse errors naming the bad file
+	models, err := ScanCommittedModels(tempDir, "")
+	if err == nil {
+		t.Fatalf("expected ScanCommittedModels to fail on malformed JSON, but got nil error and %d models", len(models))
+	}
+	if !strings.Contains(err.Error(), badFile) {
+		t.Errorf("expected error to name malformed file %s, got: %v", badFile, err)
+	}
+}
+
+func TestScanCommittedModels_DeduplicationCollapsesDefVersionsDeterministically(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Structure:
+	// models/model-a/1.0.0/v1.0.0/model.json (older defVersion)
+	// models/model-a/1.0.0/v1.2.0/model.json (highest defVersion - must be chosen)
+	// models/model-a/1.0.0/v1.1.0/model.json (middle defVersion)
+	// models/model-b/2.0.0/v1.0.0/model.json (distinct model)
+
+	dirA1 := filepath.Join(tempDir, "model-a", "1.0.0", "v1.0.0")
+	dirA2 := filepath.Join(tempDir, "model-a", "1.0.0", "v1.2.0")
+	dirA3 := filepath.Join(tempDir, "model-a", "1.0.0", "v1.1.0")
+	dirB := filepath.Join(tempDir, "model-b", "2.0.0", "v1.0.0")
+
+	for _, d := range []string{dirA1, dirA2, dirA3, dirB} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatalf("failed to create directory %s: %v", d, err)
+		}
+	}
+
+	_ = os.WriteFile(filepath.Join(dirA1, "model.json"), []byte(`{"name": "model-a", "displayName": "Model A", "metadata": {"description": "defVersion v1.0.0"}}`), 0644)
+	_ = os.WriteFile(filepath.Join(dirA2, "model.json"), []byte(`{"name": "model-a", "displayName": "Model A", "metadata": {"description": "defVersion v1.2.0"}}`), 0644)
+	_ = os.WriteFile(filepath.Join(dirA3, "model.json"), []byte(`{"name": "model-a", "displayName": "Model A", "metadata": {"description": "defVersion v1.1.0"}}`), 0644)
+	_ = os.WriteFile(filepath.Join(dirB, "model.json"), []byte(`{"name": "model-b", "displayName": "Model B"}`), 0644)
+
 	models, err := ScanCommittedModels(tempDir, "")
 	if err != nil {
 		t.Fatalf("ScanCommittedModels failed: %v", err)
 	}
 
-	// Expect exactly 2 models: model-a (deduplicated) and model-b (model-c skipped due to malformed JSON)
 	if len(models) != 2 {
-		t.Fatalf("expected 2 models after deduplication and skipping malformed, got %d", len(models))
+		t.Fatalf("expected 2 models after deduplication, got %d", len(models))
 	}
 
-	foundA, foundB := false, false
 	for _, m := range models {
 		if m.Model == "model-a" {
-			foundA = true
+			if m.Description != "defVersion v1.2.0" {
+				t.Errorf("expected highest defVersion v1.2.0 to be retained, got '%s'", m.Description)
+			}
 		}
-		if m.Model == "model-b" {
-			foundB = true
-		}
-	}
-	if !foundA || !foundB {
-		t.Errorf("expected both model-a and model-b, got foundA=%v, foundB=%v", foundA, foundB)
-	}
-
-	// Test targeting only model-b
-	targetedModels, err := ScanCommittedModels(tempDir, "model-b")
-	if err != nil {
-		t.Fatalf("ScanCommittedModels with targetModel failed: %v", err)
-	}
-	if len(targetedModels) != 1 || targetedModels[0].Model != "model-b" {
-		t.Errorf("expected 1 model-b, got %v", targetedModels)
 	}
 }
 
-func TestScanCommittedComponents_MalformedAndDeduplication(t *testing.T) {
+func TestScanCommittedComponents_MalformedReturnsAggregatedError(t *testing.T) {
+	tempDir := t.TempDir()
+
+	compDirValid := filepath.Join(tempDir, "model-a", "v1.0.0", "v1.0.0", "components")
+	compDirBad := filepath.Join(tempDir, "model-b", "v1.0.0", "v1.0.0", "components")
+
+	for _, d := range []string{compDirValid, compDirBad} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatalf("failed to create directory %s: %v", d, err)
+		}
+	}
+
+	_ = os.WriteFile(filepath.Join(compDirValid, "Comp1.json"), []byte(`{"model": {"name": "model-a"}, "component": {"kind": "Comp1"}}`), 0644)
+	badFile := filepath.Join(compDirBad, "BadComp.json")
+	_ = os.WriteFile(badFile, []byte(`{ invalid component json syntax ]`), 0644)
+
+	comps, err := ScanCommittedComponents(tempDir, "")
+	if err == nil {
+		t.Fatalf("expected ScanCommittedComponents to fail on malformed JSON, but got nil error and %d components", len(comps))
+	}
+	if !strings.Contains(err.Error(), badFile) {
+		t.Errorf("expected error to name malformed component file %s, got: %v", badFile, err)
+	}
+}
+
+func TestScanCommittedComponents_Deduplication(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Structure:
 	// models/model-a/v1.0.0/v1.0.0/components/Comp1.json (valid)
 	// models/model-a/v1.0.0/v1.0.1/components/Comp1.json (duplicate version - should deduplicate)
 	// models/model-a/v1.0.0/v1.0.0/components/Comp2.json (valid)
-	// models/model-a/v1.0.0/v1.0.0/components/BadComp.json (malformed JSON)
 	// models/model-b/v1.0.0/v1.0.0/components/Comp3.json (valid)
 
 	compDirA1 := filepath.Join(tempDir, "model-a", "v1.0.0", "v1.0.0", "components")
@@ -421,24 +523,20 @@ func TestScanCommittedComponents_MalformedAndDeduplication(t *testing.T) {
 		}
 	}
 
-	_ = os.WriteFile(filepath.Join(compDirA1, "Comp1.json"), []byte(`{"model": {"name": "model-a"}, "component": {"kind": "Comp1", "version": "v1"}}`), 0644)
-	_ = os.WriteFile(filepath.Join(compDirA2, "Comp1.json"), []byte(`{"model": {"name": "model-a"}, "component": {"kind": "Comp1", "version": "v1"}}`), 0644)
-	_ = os.WriteFile(filepath.Join(compDirA1, "Comp2.json"), []byte(`{"model": {"name": "model-a"}, "component": {"kind": "Comp2", "version": "v1"}}`), 0644)
-	_ = os.WriteFile(filepath.Join(compDirA1, "BadComp.json"), []byte(`{ invalid json syntax ]`), 0644)
-	_ = os.WriteFile(filepath.Join(compDirB, "Comp3.json"), []byte(`{"model": {"name": "model-b"}, "component": {"kind": "Comp3", "version": "v1"}}`), 0644)
+	_ = os.WriteFile(filepath.Join(compDirA1, "Comp1.json"), []byte(`{"model": {"name": "model-a"}, "component": {"kind": "Comp1"}}`), 0644)
+	_ = os.WriteFile(filepath.Join(compDirA2, "Comp1.json"), []byte(`{"model": {"name": "model-a"}, "component": {"kind": "Comp1"}}`), 0644)
+	_ = os.WriteFile(filepath.Join(compDirA1, "Comp2.json"), []byte(`{"model": {"name": "model-a"}, "component": {"kind": "Comp2"}}`), 0644)
+	_ = os.WriteFile(filepath.Join(compDirB, "Comp3.json"), []byte(`{"model": {"name": "model-b"}, "component": {"kind": "Comp3"}}`), 0644)
 
-	// Scan all components
 	comps, err := ScanCommittedComponents(tempDir, "")
 	if err != nil {
 		t.Fatalf("ScanCommittedComponents failed: %v", err)
 	}
 
-	// Expect 3 components: Comp1 (deduplicated), Comp2, Comp3 (BadComp skipped)
 	if len(comps) != 3 {
 		t.Fatalf("expected 3 components, got %d", len(comps))
 	}
 
-	// Test target model
 	targetedComps, err := ScanCommittedComponents(tempDir, "model-a")
 	if err != nil {
 		t.Fatalf("ScanCommittedComponents with targetModel failed: %v", err)
@@ -679,5 +777,75 @@ func TestGenerateCmd_ExportOnlyPreRunE(t *testing.T) {
 
 	if err := cmd3.PreRunE(cmd3, []string{}); err == nil {
 		t.Fatalf("expected PreRunE to fail when no inputs or export flags are specified, but got nil")
+	}
+}
+
+func TestGenerateCmd_ExportFlagsRejectGenerationInputs(t *testing.T) {
+	testCases := []struct {
+		name          string
+		flagOverrides map[string]string
+	}{
+		{
+			name: "export-models combined with relationship-csv",
+			flagOverrides: map[string]string{
+				"export-models-csv": "/tmp/models.csv",
+				"relationship-csv":  "/tmp/relationships.csv",
+			},
+		},
+		{
+			name: "export-components combined with spreadsheet-id",
+			flagOverrides: map[string]string{
+				"export-components-csv": "/tmp/components.csv",
+				"spreadsheet-id":        "sheet-123",
+			},
+		},
+		{
+			name: "export-models combined with directory",
+			flagOverrides: map[string]string{
+				"export-models-csv": "/tmp/models.csv",
+				"directory":         "/tmp/csvs",
+			},
+		},
+		{
+			name: "export-models combined with model-csv",
+			flagOverrides: map[string]string{
+				"export-models-csv": "/tmp/models.csv",
+				"model-csv":         "/tmp/model.csv",
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := &cobra.Command{
+				PreRunE: generateCmd.PreRunE,
+			}
+			defaults := map[string]string{
+				"spreadsheet-id":        "",
+				"spreadsheet-cred":      "",
+				"registrant-def":        "",
+				"registrant-cred":       "",
+				"directory":             "",
+				"model-csv":             "",
+				"component-csv":         "",
+				"relationship-csv":      "",
+				"export-models-csv":     "",
+				"export-components-csv": "",
+			}
+			for k, v := range tc.flagOverrides {
+				defaults[k] = v
+			}
+			for k, v := range defaults {
+				cmd.Flags().String(k, v, "")
+			}
+
+			err := cmd.PreRunE(cmd, []string{})
+			if err == nil {
+				t.Fatalf("expected PreRunE to fail for mixed input case %q, but got nil", tc.name)
+			}
+			if !strings.Contains(err.Error(), "cannot be combined with generation input flags") {
+				t.Errorf("expected error message to explain export flags cannot be combined with generation inputs, got: %v", err)
+			}
+		})
 	}
 }

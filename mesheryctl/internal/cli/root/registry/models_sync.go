@@ -16,12 +16,14 @@ package registry
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/gocarina/gocsv"
 	"github.com/meshery/meshery/mesheryctl/pkg/utils"
 	meshkitRegistryUtils "github.com/meshery/meshkit/registry"
@@ -426,12 +428,23 @@ func ParseComponentJSONFile(filePath string) (*meshkitRegistryUtils.ComponentCSV
 	stylesStr := stringifyJSONField(def.Styles)
 	capabilitiesStr := stringifyJSONField(def.Capabilities)
 
-	version := def.Component.Version
+	version := def.Model.Version
 	if version == "" {
 		version = def.Model.Model.Version
 	}
 	if version == "" {
-		version = def.Model.Version
+		slashPath := filepath.ToSlash(filePath)
+		parts := strings.Split(slashPath, "/")
+		for i := len(parts) - 1; i >= 0; i-- {
+			if parts[i] == "components" {
+				if i >= 1 && parts[i-1] != "" {
+					version = parts[i-1]
+				} else if i >= 2 && parts[i-2] != "" {
+					version = parts[i-2]
+				}
+				break
+			}
+		}
 	}
 
 	status := def.Status
@@ -466,10 +479,30 @@ func ParseComponentJSONFile(filePath string) (*meshkitRegistryUtils.ComponentCSV
 	}, nil
 }
 
+func isHigherVersion(v1, v2 string) bool {
+	sv1, err1 := semver.NewVersion(v1)
+	sv2, err2 := semver.NewVersion(v2)
+	if err1 == nil && err2 == nil {
+		return sv1.GreaterThan(sv2)
+	}
+	return v1 > v2
+}
+
 // ScanCommittedModels scans the models directory and parses all model.json files.
+// Deduplication rule: Models are deduplicated by the key (model, modelVersion). If multiple
+// defVersions exist for the same (model, modelVersion), the definition with the highest defVersion
+// (evaluated via semantic versioning, falling back to lexical order) is deterministically selected.
+// Any collapsed duplicates are counted and logged as a warning so the data collapse is visible.
 func ScanCommittedModels(modelsPath string, targetModel string) ([]meshkitRegistryUtils.ModelCSV, error) {
-	var rows []meshkitRegistryUtils.ModelCSV
-	seen := make(map[string]bool)
+	type candidate struct {
+		row        meshkitRegistryUtils.ModelCSV
+		defVersion string
+	}
+
+	var orderedKeys []string
+	candidates := make(map[string]candidate)
+	collapsedCount := 0
+	var parseErrs []error
 
 	err := filepath.WalkDir(modelsPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -488,7 +521,7 @@ func ScanCommittedModels(modelsPath string, targetModel string) ([]meshkitRegist
 
 		row, err := ParseModelJSONFile(path)
 		if err != nil {
-			logWarnf("Failed to parse model file %s: %v", path, err)
+			parseErrs = append(parseErrs, fmt.Errorf("%s: %w", path, err))
 			return nil
 		}
 
@@ -496,23 +529,50 @@ func ScanCommittedModels(modelsPath string, targetModel string) ([]meshkitRegist
 		if len(pathParts) >= 2 {
 			modelVersion = pathParts[1]
 		}
-		key := fmt.Sprintf("%s:%s", row.Model, modelVersion)
-		if seen[key] {
-			return nil
+		defVersion := ""
+		if len(pathParts) >= 3 {
+			defVersion = pathParts[2]
 		}
-		seen[key] = true
 
-		rows = append(rows, *row)
+		key := fmt.Sprintf("%s:%s", row.Model, modelVersion)
+		existing, seen := candidates[key]
+		if !seen {
+			orderedKeys = append(orderedKeys, key)
+			candidates[key] = candidate{row: *row, defVersion: defVersion}
+		} else {
+			collapsedCount++
+			if isHigherVersion(defVersion, existing.defVersion) {
+				candidates[key] = candidate{row: *row, defVersion: defVersion}
+			}
+		}
+
 		return nil
 	})
 
-	return rows, err
+	if err != nil {
+		return nil, err
+	}
+	if len(parseErrs) > 0 {
+		return nil, fmt.Errorf("failed to parse %d model file(s):\n%w", len(parseErrs), errors.Join(parseErrs...))
+	}
+
+	if collapsedCount > 0 {
+		logWarnf("Collapsed %d duplicate model definition(s) across defVersions for identical (model, modelVersion) keys; highest defVersion retained", collapsedCount)
+	}
+
+	rows := make([]meshkitRegistryUtils.ModelCSV, 0, len(orderedKeys))
+	for _, k := range orderedKeys {
+		rows = append(rows, candidates[k].row)
+	}
+
+	return rows, nil
 }
 
 // ScanCommittedComponents scans the models directory and parses all component JSON files.
 func ScanCommittedComponents(modelsPath string, targetModel string) ([]meshkitRegistryUtils.ComponentCSV, error) {
 	var rows []meshkitRegistryUtils.ComponentCSV
 	seen := make(map[string]bool)
+	var parseErrs []error
 
 	err := filepath.WalkDir(modelsPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -532,7 +592,7 @@ func ScanCommittedComponents(modelsPath string, targetModel string) ([]meshkitRe
 
 		row, err := ParseComponentJSONFile(path)
 		if err != nil {
-			logWarnf("Failed to parse component file %s: %v", path, err)
+			parseErrs = append(parseErrs, fmt.Errorf("%s: %w", path, err))
 			return nil
 		}
 
@@ -554,7 +614,14 @@ func ScanCommittedComponents(modelsPath string, targetModel string) ([]meshkitRe
 		return nil
 	})
 
-	return rows, err
+	if err != nil {
+		return nil, err
+	}
+	if len(parseErrs) > 0 {
+		return nil, fmt.Errorf("failed to parse %d component file(s):\n%w", len(parseErrs), errors.Join(parseErrs...))
+	}
+
+	return rows, nil
 }
 
 // ExportModelsToCSV exports model rows to a CSV file matching the Models spreadsheet schema.
@@ -570,6 +637,8 @@ func ExportModelsToCSV(rows []meshkitRegistryUtils.ModelCSV, outputPath string) 
 	}()
 
 	if err := gocsv.MarshalFile(&rows, file); err != nil {
+		_ = file.Close()
+		_ = os.Remove(outputPath)
 		return fmt.Errorf("failed to write models CSV %s: %w", outputPath, err)
 	}
 
@@ -589,6 +658,8 @@ func ExportComponentsToCSV(rows []meshkitRegistryUtils.ComponentCSV, outputPath 
 	}()
 
 	if err := gocsv.MarshalFile(&rows, file); err != nil {
+		_ = file.Close()
+		_ = os.Remove(outputPath)
 		return fmt.Errorf("failed to write components CSV %s: %w", outputPath, err)
 	}
 

@@ -115,16 +115,25 @@ mesheryctl registry generate --export-components-csv ./Components.csv
 		exportModelsCSV, _ = cmd.Flags().GetString("export-models-csv")
 		exportComponentsCSV, _ = cmd.Flags().GetString("export-components-csv")
 
+		spreadsheetCredFlag, _ := cmd.Flags().GetString("spreadsheet-cred")
+		registrantCredFlag, _ := cmd.Flags().GetString("registrant-cred")
+		relationshipCSV, _ := cmd.Flags().GetString("relationship-csv")
+
 		// Check if individual CSV flags are provided
 		hasIndividualCSVs := modelCSV != "" && componentCSV != ""
 		hasExportFlags := exportModelsCSV != "" || exportComponentsCSV != ""
+		hasGenerationInputs := spreadsheetIdFlag != "" || spreadsheetCredFlag != "" ||
+			registrantDefFlag != "" || registrantCredFlag != "" ||
+			directoryFlag != "" || modelCSV != "" || componentCSV != "" || relationshipCSV != ""
 
-		if spreadsheetIdFlag == "" && registrantDefFlag == "" && directoryFlag == "" && !hasIndividualCSVs && !hasExportFlags {
-			return errors.New(utils.RegistryError(errorMsg, "generate"))
+		// Reject mixed invocations: export flags cannot be combined with generation inputs
+		if hasExportFlags && hasGenerationInputs {
+			return errors.New(utils.RegistryError("Export flags (--export-models-csv, --export-components-csv) cannot be combined with generation input flags (--spreadsheet-id, --spreadsheet-cred, --registrant-def, --registrant-cred, --directory, --model-csv, --component-csv, --relationship-csv)", "generate"))
 		}
 
-		spreadsheetCredFlag, _ := cmd.Flags().GetString("spreadsheet-cred")
-		registrantCredFlag, _ := cmd.Flags().GetString("registrant-cred")
+		if !hasGenerationInputs && !hasExportFlags {
+			return errors.New(utils.RegistryError(errorMsg, "generate"))
+		}
 
 		if spreadsheetIdFlag != "" && spreadsheetCredFlag == "" {
 			return errors.New(utils.RegistryError("Spreadsheet Credentials is required\n\nUsage: \nmesheryctl registry generate --spreadsheet-id [Spreadsheet ID] --spreadsheet-cred $CRED\nmesheryctl registry generate --spreadsheet-id [Spreadsheet ID] --spreadsheet-cred $CRED --model \"[model-name]\"\nRun 'mesheryctl registry generate --help'", "generate"))
@@ -142,7 +151,6 @@ mesheryctl registry generate --export-components-csv ./Components.csv
 			if _, err := os.Stat(componentCSV); os.IsNotExist(err) {
 				return errors.New(utils.RegistryError(fmt.Sprintf("Component CSV file not found: %s", componentCSV), "generate"))
 			}
-			relationshipCSV, _ := cmd.Flags().GetString("relationship-csv")
 			if relationshipCSV != "" {
 				if _, err := os.Stat(relationshipCSV); os.IsNotExist(err) {
 					return errors.New(utils.RegistryError(fmt.Sprintf("Relationship CSV file not found: %s", relationshipCSV), "generate"))
@@ -177,9 +185,9 @@ mesheryctl registry generate --export-components-csv ./Components.csv
 			}
 		}
 
-		// If this is an export-only execution (no spreadsheet ID, registrant def, directory, or input CSVs),
-		// exit cleanly without running generation.
-		if spreadsheetIdFlag == "" && registrantDefFlag == "" && directoryFlag == "" && modelCSV == "" {
+		// If this is an export execution, exit cleanly without running generation
+		// (mixed invocations are rejected in PreRunE).
+		if exportModelsCSVFlag != "" || exportComponentsCSVFlag != "" {
 			return nil
 		}
 
