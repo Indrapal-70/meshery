@@ -122,14 +122,17 @@ mesheryctl registry generate --export-components-csv ./Components.csv
 		// Check if individual CSV flags are provided
 		hasIndividualCSVs := modelCSV != "" && componentCSV != ""
 		hasExportFlags := exportModelsCSV != "" || exportComponentsCSV != ""
-		hasGenerationInputs := spreadsheetIdFlag != "" || spreadsheetCredFlag != "" ||
+
+		hasGenerationFlags := spreadsheetIdFlag != "" || spreadsheetCredFlag != "" ||
 			registrantDefFlag != "" || registrantCredFlag != "" ||
 			directoryFlag != "" || modelCSV != "" || componentCSV != "" || relationshipCSV != ""
 
 		// Reject mixed invocations: export flags cannot be combined with generation inputs
-		if hasExportFlags && hasGenerationInputs {
+		if hasExportFlags && hasGenerationFlags {
 			return errors.New(utils.RegistryError("Export flags (--export-models-csv, --export-components-csv) cannot be combined with generation input flags (--spreadsheet-id, --spreadsheet-cred, --registrant-def, --registrant-cred, --directory, --model-csv, --component-csv, --relationship-csv)", "generate"))
 		}
+
+		hasGenerationInputs := spreadsheetIdFlag != "" || registrantDefFlag != "" || directoryFlag != "" || hasIndividualCSVs
 
 		if !hasGenerationInputs && !hasExportFlags {
 			return errors.New(utils.RegistryError(errorMsg, "generate"))

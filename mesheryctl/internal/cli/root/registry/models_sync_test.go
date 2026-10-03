@@ -780,38 +780,89 @@ func TestGenerateCmd_ExportOnlyPreRunE(t *testing.T) {
 	}
 }
 
-func TestGenerateCmd_ExportFlagsRejectGenerationInputs(t *testing.T) {
+func TestGenerateCmd_PreRunEValidationTableDriven(t *testing.T) {
+	tempDir := t.TempDir()
+	validModelCSV := filepath.Join(tempDir, "model.csv")
+	validComponentCSV := filepath.Join(tempDir, "component.csv")
+	if err := os.WriteFile(validModelCSV, []byte("model"), 0644); err != nil {
+		t.Fatalf("failed to create temp model CSV: %v", err)
+	}
+	if err := os.WriteFile(validComponentCSV, []byte("component"), 0644); err != nil {
+		t.Fatalf("failed to create temp component CSV: %v", err)
+	}
+
 	testCases := []struct {
-		name          string
-		flagOverrides map[string]string
+		name             string
+		flagOverrides    map[string]string
+		expectError      bool
+		expectedErrorMsg string
 	}{
 		{
-			name: "export-models combined with relationship-csv",
+			name: "only --relationship-csv",
 			flagOverrides: map[string]string{
-				"export-models-csv": "/tmp/models.csv",
-				"relationship-csv":  "/tmp/relationships.csv",
+				"relationship-csv": "/tmp/rel.csv",
 			},
+			expectError:      true,
+			expectedErrorMsg: "isn't specified",
 		},
 		{
-			name: "export-components combined with spreadsheet-id",
+			name: "only --spreadsheet-cred",
 			flagOverrides: map[string]string{
-				"export-components-csv": "/tmp/components.csv",
-				"spreadsheet-id":        "sheet-123",
+				"spreadsheet-cred": "dummy-cred",
 			},
+			expectError:      true,
+			expectedErrorMsg: "isn't specified",
 		},
 		{
-			name: "export-models combined with directory",
+			name: "only --model-csv",
 			flagOverrides: map[string]string{
-				"export-models-csv": "/tmp/models.csv",
-				"directory":         "/tmp/csvs",
+				"model-csv": validModelCSV,
 			},
+			expectError:      true,
+			expectedErrorMsg: "isn't specified",
 		},
 		{
-			name: "export-models combined with model-csv",
+			name: "only --component-csv",
 			flagOverrides: map[string]string{
-				"export-models-csv": "/tmp/models.csv",
-				"model-csv":         "/tmp/model.csv",
+				"component-csv": validComponentCSV,
 			},
+			expectError:      true,
+			expectedErrorMsg: "isn't specified",
+		},
+		{
+			name: "both CSVs (valid)",
+			flagOverrides: map[string]string{
+				"model-csv":     validModelCSV,
+				"component-csv": validComponentCSV,
+			},
+			expectError:      false,
+			expectedErrorMsg: "",
+		},
+		{
+			name: "export flag + --relationship-csv (mixed, rejected)",
+			flagOverrides: map[string]string{
+				"export-models-csv": "/tmp/out.csv",
+				"relationship-csv":  "/tmp/rel.csv",
+			},
+			expectError:      true,
+			expectedErrorMsg: "Export flags (--export-models-csv, --export-components-csv) cannot be combined with generation input flags",
+		},
+		{
+			name: "export flag alone (valid)",
+			flagOverrides: map[string]string{
+				"export-models-csv": "/tmp/out.csv",
+			},
+			expectError:      false,
+			expectedErrorMsg: "",
+		},
+		{
+			name: "export flag + --directory (mixed, rejected)",
+			flagOverrides: map[string]string{
+				"export-models-csv": "/tmp/out.csv",
+				"directory":         "/tmp/dir",
+			},
+			expectError:      true,
+			expectedErrorMsg: "Export flags (--export-models-csv, --export-components-csv) cannot be combined with generation input flags",
 		},
 	}
 
@@ -840,11 +891,17 @@ func TestGenerateCmd_ExportFlagsRejectGenerationInputs(t *testing.T) {
 			}
 
 			err := cmd.PreRunE(cmd, []string{})
-			if err == nil {
-				t.Fatalf("expected PreRunE to fail for mixed input case %q, but got nil", tc.name)
-			}
-			if !strings.Contains(err.Error(), "cannot be combined with generation input flags") {
-				t.Errorf("expected error message to explain export flags cannot be combined with generation inputs, got: %v", err)
+			if tc.expectError {
+				if err == nil {
+					t.Fatalf("expected error for case %q, but got nil", tc.name)
+				}
+				if tc.expectedErrorMsg != "" && !strings.Contains(err.Error(), tc.expectedErrorMsg) {
+					t.Errorf("expected error to contain %q, but got: %v", tc.expectedErrorMsg, err)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("expected success for case %q, but got error: %v", tc.name, err)
+				}
 			}
 		})
 	}
