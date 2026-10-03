@@ -309,6 +309,39 @@ func TestParseComponentJSONFile_MissingOptionalFields(t *testing.T) {
 	}
 }
 
+func TestParseComponentJSONFile_FallbackModelFromPath(t *testing.T) {
+	tempDir := t.TempDir()
+	compDir := filepath.Join(tempDir, "models", "target-model", "2.1.0", "v1.0.0", "components")
+	if err := os.MkdirAll(compDir, 0755); err != nil {
+		t.Fatalf("failed to create directory: %v", err)
+	}
+
+	compFile := filepath.Join(compDir, "TestComp.json")
+	jsonWithoutModelName := `{
+		"displayName": "TestComp",
+		"component": {
+			"kind": "TestComp"
+		},
+		"model": {
+			"registrant": {
+				"name": "Github"
+			}
+		}
+	}`
+	if err := os.WriteFile(compFile, []byte(jsonWithoutModelName), 0644); err != nil {
+		t.Fatalf("failed to write test fixture: %v", err)
+	}
+
+	compCSV, err := ParseComponentJSONFile(compFile)
+	if err != nil {
+		t.Fatalf("ParseComponentJSONFile failed: %v", err)
+	}
+
+	if compCSV.Model != "target-model" {
+		t.Errorf("expected fallback Model 'target-model', got '%s'", compCSV.Model)
+	}
+}
+
 func TestScanCommittedModels_MalformedAndDeduplication(t *testing.T) {
 	tempDir := t.TempDir()
 

@@ -324,8 +324,8 @@ func ParseComponentJSONFile(filePath string) (*meshkitRegistryUtils.ComponentCSV
 		slashPath := filepath.ToSlash(filePath)
 		parts := strings.Split(slashPath, "/")
 		for i := len(parts) - 1; i >= 0; i-- {
-			if parts[i] == "components" && i >= 2 {
-				modelName = parts[i-2]
+			if parts[i] == "components" && i >= 3 {
+				modelName = parts[i-3]
 				break
 			}
 		}
