@@ -22,11 +22,12 @@ To set up and run Meshery on Linux or macOS, you will need to install `mesheryct
 
 # Uninstalling `mesheryctl`
 
-To uninstall `mesheryctl`, use `brew uninstall mesheryctl` or `curl -L https://meshery.io/install | bash -s -- --uninstall`. If you installed `mesheryctl` via direct download, remove `mesheryctl` by deleting the binary file from wherever it is located on your `PATH`.
+To uninstall `mesheryctl`, use `brew uninstall mesheryctl`. If you installed `mesheryctl` via direct download, remove `mesheryctl` by deleting the binary file from wherever it is located on your `PATH`.
 
 {{% alert color="info" title="NOTE" %}}
-Running `mesheryctl system uninstall` removes a Meshery deployment from your system. This is distinct from removing the `mesheryctl` CLI binary itself.
+Running `mesheryctl system stop` removes a Meshery deployment from your system. This is distinct from removing the `mesheryctl` CLI binary itself.
 {{% /alert %}}
+
 
 {{< related-discussions tag="mesheryctl" >}}
 

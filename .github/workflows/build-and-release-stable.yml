@@ -134,9 +134,10 @@ jobs:
     name: Verify Scoop Package Lifecycle
     uses: meshery/meshery/.github/workflows/scoop-uninstall-test.yml@master
   email-on-failure:
-    needs: [build, ctlrelease, call-dde-release-workflow, call-helm-chart-releaser, email-meshery-release-notes-workflow, call-cncf-playground-rollout]
+    needs: [build, ctlrelease, call-dde-release-workflow, call-helm-chart-releaser, email-meshery-release-notes-workflow, call-cncf-playground-rollout, call-scoop-uninstall-test]
     if: ${{ failure() }}
     runs-on: ubuntu-24.04
+
     steps:
 
       - name: Find failed jobs.

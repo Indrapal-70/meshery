@@ -60,25 +60,3 @@ If you are running Meshery on Docker, execute the following command.
  <div class="clipboardjs">mesheryctl system start -p docker</div></div>
  </pre>
 
-### Uninstall `mesheryctl` using Bash
-
-To uninstall `mesheryctl`, execute the following command.
-
- <pre class="codeblock-pre">
- <div class="codeblock">
- <div class="clipboardjs">
-  $ curl -L https://meshery.io/install | bash -s -- --uninstall
- </div></div>
- </pre>
-
-The uninstall script displays a warning prompt asking for confirmation (`yes/no`). To skip this confirmation, pass the `--yes` flag:
-
- <pre class="codeblock-pre">
- <div class="codeblock">
- <div class="clipboardjs">
-  $ curl -L https://meshery.io/install | bash -s -- --uninstall --yes
- </div></div>
- </pre>
-
-*Note: The uninstall script only removes the `mesheryctl` binary; user configuration under `~/.meshery` is preserved.*
-

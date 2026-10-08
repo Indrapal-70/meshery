@@ -35,6 +35,8 @@ jobs:
 
       - name: Install mesheryctl (with retry)
         run: |
+          $scoopRoot = if ($env:SCOOP) { $env:SCOOP } else { Join-Path $env:USERPROFILE "scoop" }
+          $appDir = Join-Path $scoopRoot "apps\mesheryctl"
           $maxAttempts = 5
           $attempt = 0
           $success = $false
@@ -45,10 +47,11 @@ jobs:
             scoop install mesheryctl
 
             $cmdFound = Get-Command mesheryctl -ErrorAction SilentlyContinue
-            $scoopListOut = scoop list mesheryctl 2>&1 | Out-String
-            $inScoopList = $scoopListOut -match "mesheryctl"
+            $appDirExists = Test-Path $appDir
+            $scoopListOut = scoop list 2>&1 | Out-String
+            $inScoopList = ($scoopListOut -split "`r?\n") | Where-Object { $_ -match "^\s*mesheryctl\s+" }
 
-            if ($cmdFound -or $inScoopList) {
+            if ($cmdFound -or $appDirExists -or $inScoopList) {
               $success = $true
               Write-Host "Successfully installed mesheryctl on attempt $attempt."
             } else {
@@ -65,10 +68,13 @@ jobs:
 
       - name: Verify mesheryctl installation on PATH and in scoop list
         run: |
+          $scoopRoot = if ($env:SCOOP) { $env:SCOOP } else { Join-Path $env:USERPROFILE "scoop" }
+          $appDir = Join-Path $scoopRoot "apps\mesheryctl"
           $cmd = Get-Command mesheryctl -ErrorAction SilentlyContinue
-          $scoopListOut = scoop list mesheryctl 2>&1 | Out-String
-          $inScoopList = $scoopListOut -match "mesheryctl"
-          if (-not $cmd -or -not $inScoopList) {
+          $appDirExists = Test-Path $appDir
+          $scoopListOut = scoop list 2>&1 | Out-String
+          $inScoopList = ($scoopListOut -split "`r?\n") | Where-Object { $_ -match "^\s*mesheryctl\s+" }
+          if (-not $cmd -or (-not $appDirExists -and -not $inScoopList)) {
             Write-Error "Pre-uninstall check failed: mesheryctl on PATH or in scoop list missing."
             exit 1
           }
@@ -84,11 +90,12 @@ jobs:
           $shimPs1 = Join-Path $scoopRoot "shims\mesheryctl.ps1"
           $shimCmd = Join-Path $scoopRoot "shims\mesheryctl.cmd"
           $shimExists = (Test-Path $shimExe) -or (Test-Path $shimPs1) -or (Test-Path $shimCmd)
-          $scoopListOut = scoop list mesheryctl 2>&1 | Out-String
-          $stillInScoopList = $scoopListOut -match "mesheryctl"
-          if ($cmd -or $shimExists -or $stillInScoopList) {
-            Write-Error "mesheryctl was still found after uninstall (Command on PATH: $($cmd.Source), Shim exists: $shimExists, Scoop list contains: $stillInScoopList)"
+          $appDirExists = Test-Path (Join-Path $scoopRoot "apps\mesheryctl")
+          $scoopListOut = scoop list 2>&1 | Out-String
+          $stillInScoopList = ($scoopListOut -split "`r?\n") | Where-Object { $_ -match "^\s*mesheryctl\s+" }
+          if ($cmd -or $shimExists -or $appDirExists -or $stillInScoopList) {
+            Write-Error "mesheryctl was still found after uninstall (Command on PATH: $($cmd.Source), Shim exists: $shimExists, App dir exists: $appDirExists, Scoop list contains: $stillInScoopList)"
             exit 1
           } else {
-            Write-Host "Verified: mesheryctl uninstalled successfully and removed from PATH, shims, and scoop list."
+            Write-Host "Verified: mesheryctl uninstalled successfully and removed from PATH, shims, app dir, and scoop list."
           }

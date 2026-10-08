@@ -30,7 +30,7 @@ Optionally, move the `mesheryctl` binary to a directory in your `PATH`.
 To uninstall `mesheryctl`, use `scoop uninstall mesheryctl` if installed via Scoop. If you installed `mesheryctl` via direct download, remove `mesheryctl` by deleting the binary file from wherever it is located on your `PATH`.
 
 {{% alert color="info" title="NOTE" %}}
-Running `mesheryctl system uninstall` removes a Meshery deployment from your system. This is distinct from removing the `mesheryctl` CLI binary itself.
+Running `mesheryctl system stop` removes a Meshery deployment from your system. This is distinct from removing the `mesheryctl` CLI binary itself.
 {{% /alert %}}
 
 

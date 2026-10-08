@@ -33,13 +33,14 @@ Continue deploying Meshery onto one of the [Supported Platforms]({{< ref "instal
 
 # Uninstalling `mesheryctl`
 
-To uninstall `mesheryctl`, use the uninstall method corresponding to your package manager (e.g., `brew uninstall mesheryctl` or `scoop uninstall mesheryctl`) or run `curl -L https://meshery.io/install | bash -s -- --uninstall`.
+To uninstall `mesheryctl`, use the uninstall method corresponding to your package manager (e.g., `brew uninstall mesheryctl` or `scoop uninstall mesheryctl`).
 
 If you installed `mesheryctl` via direct download, remove `mesheryctl` by deleting the binary file from wherever it is located on your `PATH`.
 
 {{% alert color="info" title="NOTE" %}}
-Running `mesheryctl system uninstall` removes a Meshery deployment (containers and platform resources) from your system. This is distinct from removing the `mesheryctl` CLI binary itself.
+Running `mesheryctl system stop` removes a Meshery deployment (containers and platform resources) from your system. This is distinct from removing the `mesheryctl` CLI binary itself.
 {{% /alert %}}
+
 
 {{< related-discussions tag="mesheryctl" >}}
 
